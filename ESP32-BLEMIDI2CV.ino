@@ -14,28 +14,35 @@ const int LOWNOTE = 48;
 const int HIGHNOTE = LOWNOTE + 36; // 3 octaves 
 
 // global variables
-int potvalue, oldpotvalue, modevalue, oldmodevalue;
+int potvalue, oldpotvalue;
+int modevalue, oldmodevalue;
+int pitchbendrange = 2; // range in semitones -> TODO: should be selectable via potentiometer (like "mode")
+float pitchvoltage = 0, pitchbendvoltage = 0;
 
 // ---------------------------------------------------------------------------
 void onNoteOn(uint8_t channel, uint8_t note, uint8_t velocity, uint16_t timestamp) {
   if (note<LOWNOTE) note=LOWNOTE;
   if (note>HIGHNOTE) note=HIGHNOTE;
 
-  float v = ((note-LOWNOTE)/12.0)*1000.0;
-  dacWrite(CV_PIN1, map(v, 0, MAX_OUTPUT_VOLTAGE, 0, 255));
+  pitchvoltage = (((note-LOWNOTE)/12.0)*1000.0);
+  if (pitchvoltage + pitchbendvoltage < 0) {
+    dacWrite(CV_PIN1, 0);
+  } else {
+    dacWrite(CV_PIN1, map(pitchvoltage + pitchbendvoltage, 0, MAX_OUTPUT_VOLTAGE, 0, 255));
+  }
 
   if (modevalue == 1) { // mode 1: CV_PIN2 is used to send velocity value
     dacWrite(CV_PIN2, map(velocity, 0, 127, 0, 255));
   }
 
-  Serial.printf("Note on: MIDI channel %d, note %d (%fv), velocity %d\n", channel+1, note, v/1000, velocity);
+  Serial.printf("Note on: MIDI channel %d, note %d (%fmV + %fmV), velocity %d\n", channel+1, note, pitchvoltage, pitchbendvoltage, velocity);
   digitalWrite(LED_BUILTIN, HIGH);
   digitalWrite(TRIGGER_PIN1, HIGH);
 }
 
 // ---------------------------------------------------------------------------
 void onNoteOff(uint8_t channel, uint8_t note, uint8_t velocity, uint16_t timestamp) {
-  Serial.printf("Note off: channel %d, note %d, velocity %d (timestamp %dms)\n", channel+1, note, velocity, timestamp);
+  Serial.printf("Note off: channel %d, note %d, velocity\n", channel+1, note, velocity);
   digitalWrite(LED_BUILTIN, LOW);
   digitalWrite(TRIGGER_PIN1, LOW);
 }
@@ -45,15 +52,21 @@ void onControlChange(uint8_t channel, uint8_t controller, uint8_t value, uint16_
   // controller 1: modwheel
   // mode 2: CV_PIN2 is used to send modwheel value
   if ((controller == 1) && (modevalue == 2)) { 
-    Serial.printf("Modwheel change: MIDI channel %d, value %d (timestamp %dms)\n", channel+1, value, timestamp);
+    Serial.printf("Modwheel change: MIDI channel %d, value %d\n", channel+1, value);
     dacWrite(CV_PIN2, map(value, 0, 127, 0, 255));
   }
 }
 
 // ---------------------------------------------------------------------------
 void onPitchbend(uint8_t channel, uint16_t value, uint16_t timestamp) {
-  // TODO: implement pitch bend
-  //Serial.printf("Pitch bend: MIDI channel %d, value %d (timestamp %dms)\n", channel+1, value, timestamp);
+  // The range of value here is 0 to 16383. Pitch bend wheel in "neutral position" is value 8192
+  pitchbendvoltage = (map(value, 0, 16383, pitchbendrange * -1 * 1000, pitchbendrange * 1000) * (1000.0 / 12.0)) / 1000;
+  Serial.printf("Pitch bend: MIDI channel %d, value %d, pitchvoltage %fmV, pitchbendvoltage %fmV\n", channel+1, value, pitchvoltage, pitchbendvoltage);
+  if (pitchvoltage + pitchbendvoltage < 0) {
+    dacWrite(CV_PIN1, 0);
+  } else {
+    dacWrite(CV_PIN1, map(pitchvoltage + pitchbendvoltage, 0, MAX_OUTPUT_VOLTAGE, 0, 255));
+  }
 }
 
 // ---------------------------------------------------------------------------
